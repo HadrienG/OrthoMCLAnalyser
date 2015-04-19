@@ -61,7 +61,7 @@ class Genome(object):
 			self.size += (len(record.seq))
 			for feature in record.features:
 				if feature.type == "CDS":
-					self.coding_size += len("".join(feature.qualifiers["translation"]))*3
+					self.coding_size += len("".join(feature.qualifiers["translation"])) * 3
 					self.CDSList.append(feature)
 
 
@@ -76,6 +76,7 @@ class Protein(object):
 		self._info = header
 		self.strain = header.split("|")[0]
 		self._genbank = self._load_genbank(args, header, Genomes)
+		self.feature = self._genbank[2]
 		self.product = "".join(self._genbank[0])
 		self.sequence = "".join(self._genbank[1])
 		self.length = len(self.sequence)
@@ -88,11 +89,13 @@ class Protein(object):
 					if "product" in feature.qualifiers:
 						product = feature.qualifiers["product"]
 						sequence = feature.qualifiers["translation"]
+						feat = feature
 					else:
 						product = ["unknown"]
 						sequence = feature.qualifiers["translation"]
+						feat = feature
 					break
-		return product, sequence
+		return product, sequence, feat
 
 
 class Cluster(object):
@@ -125,7 +128,9 @@ class Cluster(object):
 		self.stdev = np.std(self.lenlist)
 
 		# Representative protein of the cluster: the longest or the first one
-		self.repr = "".join(next(x.sequence for x in self.proteins if x.length == self.maxlength))
+		self.repr = "".join(next(
+			x.sequence for x in self.proteins if x.length == self.maxlength)
+		)
 
 
 def extract_clusters(args, Genomes):
@@ -138,6 +143,18 @@ def extract_clusters(args, Genomes):
 			print "Extracting info for Cluster %s: done." % (x.id)
 			Clusters.append(x)
 	return Clusters
+
+
+def identify_singletons(Clusters, genome):
+	# Some proteins are not present in the orthoMCL clusters. This function
+	# aims to identify them. They should be included in each strain pan-genome.
+	CompleteSet = set(genome.CDSList)
+	PartialProteinList = [x for x in list(
+		itertools.chain(*[x.proteins for x in Clusters])) if x.strain == genome.name]
+	PartialFeatureSet = set(protein.feature for protein in PartialProteinList)
+
+	Singletons = CompleteSet - PartialFeatureSet
+	return Singletons  # Return a set of features
 
 
 def cluster2fasta(cluster, output):
@@ -201,16 +218,17 @@ def overall_summary(args, Clusters):
 	print form
 
 
-def per_genome_summary(args, Clusters):
+def per_genome_summary(args, Clusters, Genomes):
 	# Output = open(args.outdir + "/clusterlist.txt", "w")
-	form = "Genome\tN. of proteins\tN. of Clusters\n"
-	GenomeList = os.listdir(args.gb_dir)
-	for genome in GenomeList:
-		form += "%s\t%i\t%i\n" % (
-			genome,
-			len([x for x in list(itertools.chain(*[x.protlist for x in Clusters]))
-										if x.split("|")[0] == genome.strip(".gb")]),
-			len([x.id for x in Clusters if genome.strip(".gb") in x.strainlist])
+	form = "Genome\tN. of proteins\tN. of Clusters\tN. of Singletons\n"
+	# GenomeList = os.listdir(args.gb_dir)
+	for genome in Genomes:
+		form += "%s\t%i\t%i\t%s\n" % (
+			genome.name,
+			len([x for x in list(itertools.chain(*[x.proteins for x in Clusters]))
+										if x.strain == genome.name]),
+			len([x.id for x in Clusters if genome.name in x.strainlist]),
+			len(identify_singletons(Clusters, genome))
 			# [x.id for x in Clusters if genome.strip(".gb") in x.strainlist]
 		)
 	# Output.write(form)
@@ -233,9 +251,12 @@ def main():
 	args = parser()
 	makedir(args)
 
-	Genomes=[Genome(args.gb_dir + genbank) for genbank in os.listdir(args.gb_dir)]
+	# List of objects Genome
+	Genomes = [Genome(args.gb_dir + gb) for gb in os.listdir(args.gb_dir)]
 
+	# List of objects Cluster
 	Clusters = extract_clusters(args, Genomes)
+
 	for cluster in Clusters:
 		if cluster.type == "PAN":
 			cluster_summary(cluster, args.outdir + "/PanGenome/" + cluster.id + ".txt")
@@ -243,17 +264,33 @@ def main():
 		else:
 			cluster_summary(cluster, args.outdir + "/CoreGenome/" + cluster.id + ".txt")
 			cluster2fasta(cluster, args.outdir + "/CoreGenome/" + cluster.id + ".faa")
+
 	print
-	per_genome_summary(args, Clusters)
+	per_genome_summary(args, Clusters, Genomes)
+
 	# overall_summary(args, Clusters)
 	print
 	# size_calculations(Clusters)
 
 	# GENOMES
-	# Genomes=[Genome(args.gb_dir + genbank) for genbank in os.listdir(args.gb_dir)]
-	for genome in Genomes:print genome.name, "===", genome.size, "====", genome.coding_size, genome.coding_size/float(genome.size)*100, "%"
+	print "Genome\tSize\tCodingSize\t%Coding\tCoreSize\tPanSize"
+	# CoreSize + PanSize < Coding size. TODO retrieve the singletons
+	for genome in Genomes:
+		print "%s:\t%i\t%i\t%f\t%i\t%i" % (
+								genome.name,
+								genome.size,
+								genome.coding_size,
+								genome.coding_size / float(genome.size) * 100,
+								sum([x.length for x in list(
+									itertools.chain(*[x.proteins for x in Clusters if x.type == "CORE"]))
+									if x.strain == genome.name]) * 3,
+								sum([x.length for x in list(
+									itertools.chain(*[x.proteins for x in Clusters if x.type == "PAN"]))
+									if x.strain == genome.name]) * 3
+		)
 
-	# for genome in Genomes:print genome.CDSList,
+	# singleton identification DONE.
+	# TODO calculate the length of the singletons and add it to PANSize
 
 
 if __name__ == '__main__':
