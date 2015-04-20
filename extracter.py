@@ -8,6 +8,7 @@ import argparse
 import numpy as np
 import itertools
 from Bio import SeqIO
+from Bio.SeqUtils import GC
 
 
 def parser():
@@ -52,25 +53,25 @@ class Genome(object):
 		super(Genome, self).__init__()
 		self.file = genbank
 		self.name = genbank.split("/")[-1].split(".")[0]
+		self.seq = ""
 		self.size = 0
 		self.coding_size = 0
 		self.CDSList = []
 
 		Genbank = SeqIO.parse(open(self.file), "genbank")
 		for record in Genbank:
+			self.seq += str(record.seq)
 			self.size += (len(record.seq))
 			for feature in record.features:
 				if feature.type == "CDS":
 					self.coding_size += len("".join(feature.qualifiers["translation"])) * 3
 					self.CDSList.append(feature)
+		self.GC = GC(self.seq)
 
 
 class Protein(object):
 	"""class representing a protein, member of a Cluster."""
-	# Contains:
-	# Protein.strain		= The 3/4 chars code used by Orthomcl
-	# Protein.product		= The function of the protein
-	# Protein.sequence		= The sequence of the protein
+	# Protein.strain		= The 3 or 4 char code used by Orthomcl
 	def __init__(self, header, args, Genomes):
 		super(Protein, self).__init__()
 		self._info = header
@@ -191,12 +192,12 @@ def cluster_summary(cluster, output):
 
 
 def overall_summary(args, Clusters):
-	form = """Summary of the analysis:\n
+	form = """Summary of the Clusters content:\n
 	Genomes used: %s
 	Number of Clusters: %i
 	"Core" Clusters: %i
 	"Pan" Clusters: %i\n
-	Total number of proteins: %i
+	Total number of proteins in Clusters: %i
 	Number of "Core" proteins: %i
 	Number of "Pan" proteins: %i\n
 	List of "Core" Clusters: %s
@@ -214,14 +215,14 @@ def overall_summary(args, Clusters):
 		[x.id for x in Clusters if x.type == "CORE"],
 		[x.id for x in Clusters if x.type == "PAN"]
 	)
-
-	print form
+	Output = open(args.outdir + "summary.txt", "w")
+	Output.write(form)
+	Output.close()
+	print "%ssummary.txt written." % (args.outdir)
 
 
 def per_genome_summary(args, Clusters, Genomes):
-	# Output = open(args.outdir + "/clusterlist.txt", "w")
 	form = "Genome\tN. of proteins\tN. of Clusters\tN. of Singletons\n"
-	# GenomeList = os.listdir(args.gb_dir)
 	for genome in Genomes:
 		form += "%s\t%i\t%i\t%s\n" % (
 			genome.name,
@@ -229,10 +230,7 @@ def per_genome_summary(args, Clusters, Genomes):
 										if x.strain == genome.name]),
 			len([x.id for x in Clusters if genome.name in x.strainlist]),
 			len(identify_singletons(Clusters, genome))
-			# [x.id for x in Clusters if genome.strip(".gb") in x.strainlist]
 		)
-	# Output.write(form)
-	# Output.close()
 	print form
 
 
@@ -257,6 +255,7 @@ def main():
 	# List of objects Cluster
 	Clusters = extract_clusters(args, Genomes)
 
+	# Writing of the output
 	for cluster in Clusters:
 		if cluster.type == "PAN":
 			cluster_summary(cluster, args.outdir + "/PanGenome/" + cluster.id + ".txt")
@@ -264,33 +263,34 @@ def main():
 		else:
 			cluster_summary(cluster, args.outdir + "/CoreGenome/" + cluster.id + ".txt")
 			cluster2fasta(cluster, args.outdir + "/CoreGenome/" + cluster.id + ".faa")
-
+	overall_summary(args, Clusters)
 	print
+
+	# Summary of the analysis + Core/Pan size calculations
 	per_genome_summary(args, Clusters, Genomes)
-
-	# overall_summary(args, Clusters)
-	print
-	# size_calculations(Clusters)
-
-	# GENOMES
-	print "Genome\tSize\tCodingSize\t%Coding\tCoreSize\tPanSize"
-	# CoreSize + PanSize < Coding size. TODO retrieve the singletons
+	print "Genome\tGC\tSize\tCodingSize\t%Coding\tCoreSize\tPanSize\t%Core\t%Pan"
 	for genome in Genomes:
-		print "%s:\t%i\t%i\t%f\t%i\t%i" % (
+		CoreSize = sum([x.length for x in list(
+			itertools.chain(*[x.proteins for x in Clusters if x.type == "CORE"]))
+			if x.strain == genome.name]) * 3
+		# PanSize = size of the genome
+		# present in the clusters + size of the singletons
+		PanSize = (sum([x.length for x in list(
+			itertools.chain(*[x.proteins for x in Clusters if x.type == "PAN"]))
+			if x.strain == genome.name]) * 3) + \
+			(sum(len("".join(feature.qualifiers["translation"])) * 3
+				for feature in identify_singletons(Clusters, genome)))
+		print "%s:\t%.2f\t%i\t%i\t%.2f\t%i\t%i\t%.2f\t%.2f" % (
 								genome.name,
+								genome.GC,
 								genome.size,
 								genome.coding_size,
 								genome.coding_size / float(genome.size) * 100,
-								sum([x.length for x in list(
-									itertools.chain(*[x.proteins for x in Clusters if x.type == "CORE"]))
-									if x.strain == genome.name]) * 3,
-								sum([x.length for x in list(
-									itertools.chain(*[x.proteins for x in Clusters if x.type == "PAN"]))
-									if x.strain == genome.name]) * 3
+								CoreSize,
+								PanSize,
+								CoreSize / float(genome.coding_size) * 100,
+								PanSize / float(genome.coding_size) * 100
 		)
-
-	# singleton identification DONE.
-	# TODO calculate the length of the singletons and add it to PANSize
 
 
 if __name__ == '__main__':
