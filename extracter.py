@@ -51,21 +51,25 @@ class Genome(object):
 	"""class representing a genome coming from a .gb file"""
 	def __init__(self, genbank):
 		super(Genome, self).__init__()
-		self.file = genbank
+		self.filename = genbank
 		self.name = genbank.split("/")[-1].split(".")[0]
 		self.seq = ""
 		self.size = 0
 		self.coding_size = 0
 		self.CDSList = []
+		self.TranslatedCDS = {}  # TranslatedCDS[locus_tag] = DNAsequence
 
-		Genbank = SeqIO.parse(open(self.file), "genbank")
-		for record in Genbank:
+		self.file = SeqIO.parse(open(self.filename), "genbank")
+		print "Parsing %s" % (self.filename)
+		for record in self.file:
 			self.seq += str(record.seq)
 			self.size += (len(record.seq))
 			for feature in record.features:
 				if feature.type == "CDS":
-					self.coding_size += len("".join(feature.qualifiers["translation"])) * 3
+					# We add 1 to the aa length to take into account the stop codon
+					self.coding_size += (len("".join(feature.qualifiers["translation"])) + 1) * 3
 					self.CDSList.append(feature)
+					self.TranslatedCDS["".join(feature.qualifiers["locus_tag"])] = feature.location.extract(record).seq
 		self.GC = GC(self.seq)
 
 
@@ -215,14 +219,75 @@ def overall_summary(args, Clusters):
 		[x.id for x in Clusters if x.type == "CORE"],
 		[x.id for x in Clusters if x.type == "PAN"]
 	)
-	Output = open(args.outdir + "summary.txt", "w")
+	Output = open(args.outdir + "Clusterlist.txt", "w")
 	Output.write(form)
 	Output.close()
-	print "%ssummary.txt written." % (args.outdir)
+	print "%sClusterlist.txt written." % (args.outdir),
+
+
+def get_core_genome(args, Clusters, genome):
+	CoreFeatures = [x.feature for x in list(
+		itertools.chain(*[x.proteins for x in Clusters if x.type == "CORE"]))
+		if x.strain == genome.name]  # List of features
+
+	CoreProteins = [feature.qualifiers["translation"] for feature in CoreFeatures]
+	CoreDNA = {"".join(feature.qualifiers["locus_tag"]): genome.TranslatedCDS["".join(feature.qualifiers["locus_tag"])]
+		for feature in CoreFeatures}
+	MergedCoreDNA = "".join(str(seq) for seq in CoreDNA.values())
+	CoreGC = GC(MergedCoreDNA)
+
+	# Writing .fna and .faa for core genome in the Genomes dir
+	OutCoreProt = open(args.outdir + "/Genomes/" + genome.name + ".Core.faa", "w")
+	OutCoreDNA = open(args.outdir + "/Genomes/" + genome.name + ".Core.fna", "w")
+	OutMergedDNA = open(args.outdir + "/Genomes/" + genome.name + ".CoreMerged.fna", "w")
+
+	for feature in CoreFeatures:
+		OutCoreProt.write(">%s\n%s\n" % ("".join(feature.qualifiers["locus_tag"]), feature.qualifiers["translation"]))
+	OutCoreProt.close()
+	for key, value in CoreDNA.iteritems():
+		OutCoreDNA.write(">%s\n%s\n" % (key, value))
+	OutCoreDNA.close()
+	OutMergedDNA.write(">%s\n%s\n" % (genome.name + "_CORE", MergedCoreDNA))
+	OutMergedDNA.close()
+
+	# TODO WRITE A README
+
+	return {"CoreDNA":CoreDNA, "MergedCoreDNA":MergedCoreDNA, "CoreGC":CoreGC, "CoreProteins":CoreProteins}
+
+
+def get_pan_genome(args, Clusters, genome):
+	PanFeatures = [x.feature for x in list(
+		itertools.chain(*[x.proteins for x in Clusters if x.type == "PAN"]))
+		if x.strain == genome.name] + [feature for feature in identify_singletons(Clusters, genome)]
+		# List of features
+
+	PanProteins = [feature.qualifiers["translation"] for feature in PanFeatures]
+	PanDNA = {"".join(feature.qualifiers["locus_tag"]): genome.TranslatedCDS["".join(feature.qualifiers["locus_tag"])]
+		for feature in PanFeatures}
+	MergedPanDNA = "".join(str(seq) for seq in PanDNA.values())
+	PanGC = GC(MergedPanDNA)
+
+	# Writing .fna and .faa for core genome in the Genomes dir
+	OutPanProt = open(args.outdir + "/Genomes/" + genome.name + ".Pan.faa", "w")
+	OutPanDNA = open(args.outdir + "/Genomes/" + genome.name + ".Pan.fna", "w")
+	OutMergedDNA = open(args.outdir + "/Genomes/" + genome.name + ".PanMerged.fna", "w")
+
+	for feature in PanFeatures:
+		OutPanProt.write(">%s\n%s\n" % ("".join(feature.qualifiers["locus_tag"]), feature.qualifiers["translation"]))
+	OutPanProt.close()
+	for key, value in PanDNA.iteritems():
+		OutPanDNA.write(">%s\n%s\n" % (key, value))
+	OutPanDNA.close()
+	OutMergedDNA.write(">%s\n%s\n" % (genome.name + "_PAN", MergedPanDNA))
+	OutMergedDNA.close()
+
+	return {"PanDNA":PanDNA, "MergedPanDNA":MergedPanDNA, "PanGC":PanGC, "PanProteins":PanProteins}
 
 
 def per_genome_summary(args, Clusters, Genomes):
 	form = "Genome\tN. of proteins\tN. of Clusters\tN. of Singletons\n"
+	form2 = "Genome\tGC\tSize\tCodingSize\t%Coding\tCoreSize\tPanSize\t%Core\t%Pan\tGC Core\tGC Pan\n"
+	Output = open(args.outdir + "Summary.txt", "w")
 	for genome in Genomes:
 		form += "%s\t%i\t%i\t%s\n" % (
 			genome.name,
@@ -231,7 +296,30 @@ def per_genome_summary(args, Clusters, Genomes):
 			len([x.id for x in Clusters if genome.name in x.strainlist]),
 			len(identify_singletons(Clusters, genome))
 		)
-	print form
+
+		CoreGenomeDic = get_core_genome(args, Clusters, genome)
+		PanGenomeDic = get_pan_genome(args, Clusters, genome)
+		# {"PanDNA":PanDNA, "MergedPanDNA":MergedPanDNA, "PanGC":PanGC, "PanProteins":PanProteins}
+
+		form2 += "%s:\t%.2f\t%i\t%i\t%.2f\t%i\t%i\t%.2f\t%.2f\t%.2f\t%.2f\n" % (
+								genome.name,
+								genome.GC,
+								genome.size,
+								genome.coding_size,
+								genome.coding_size / float(genome.size) * 100,
+								len(CoreGenomeDic["MergedCoreDNA"]),
+								len(PanGenomeDic["MergedPanDNA"]),
+								len(CoreGenomeDic["MergedCoreDNA"]) / float(genome.coding_size) * 100,
+								len(PanGenomeDic["MergedPanDNA"]) / float(genome.coding_size) * 100,
+								CoreGenomeDic["CoreGC"],
+								PanGenomeDic["PanGC"]
+		)
+	Output.write(form2)
+	Output.close()
+	print "%sSummary.txt written.\n" % (args.outdir)
+	print form, "\n", form2, "\n"
+
+
 
 
 def makedir(args):
@@ -239,6 +327,7 @@ def makedir(args):
 	try:
 		os.makedirs(args.outdir + "/CoreGenome")
 		os.makedirs(args.outdir + "/PanGenome")
+		os.makedirs(args.outdir + "/Genomes")
 		print "Output Directory Created"
 	except OSError:
 		if not os.path.isdir(args.outdir):
@@ -268,29 +357,6 @@ def main():
 
 	# Summary of the analysis + Core/Pan size calculations
 	per_genome_summary(args, Clusters, Genomes)
-	print "Genome\tGC\tSize\tCodingSize\t%Coding\tCoreSize\tPanSize\t%Core\t%Pan"
-	for genome in Genomes:
-		CoreSize = sum([x.length for x in list(
-			itertools.chain(*[x.proteins for x in Clusters if x.type == "CORE"]))
-			if x.strain == genome.name]) * 3
-		# PanSize = size of the genome
-		# present in the clusters + size of the singletons
-		PanSize = (sum([x.length for x in list(
-			itertools.chain(*[x.proteins for x in Clusters if x.type == "PAN"]))
-			if x.strain == genome.name]) * 3) + \
-			(sum(len("".join(feature.qualifiers["translation"])) * 3
-				for feature in identify_singletons(Clusters, genome)))
-		print "%s:\t%.2f\t%i\t%i\t%.2f\t%i\t%i\t%.2f\t%.2f" % (
-								genome.name,
-								genome.GC,
-								genome.size,
-								genome.coding_size,
-								genome.coding_size / float(genome.size) * 100,
-								CoreSize,
-								PanSize,
-								CoreSize / float(genome.coding_size) * 100,
-								PanSize / float(genome.coding_size) * 100
-		)
 
 
 if __name__ == '__main__':
