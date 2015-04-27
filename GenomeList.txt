@@ -1,0 +1,4 @@
+Genome1.gb  GEN1  1
+Genome2.gb  GEN2  1
+Genome3.gb  GEN3  1
+Genome4.gb  GEN4  1
