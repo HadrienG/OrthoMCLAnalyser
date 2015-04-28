@@ -3,7 +3,7 @@
 # requirements: mcl, orthomcl, blast mysql
 # this program configures an runs the orthomcl program.
 
-Usage="$(basename "$0") [-h] [-n database Name] [-u database login name] [-p database password] [-g Genome list]
+Usage="$(basename "$0") [-h] [-n database Name] [-u database login name] [-p database password] [-l Genome list]
 [-d .gb Directory] [-t Threads] [-g Group prefix] [-o Output directory] -- RunOrthoMCL
 
     -h show this useful help
@@ -28,7 +28,7 @@ do
       ;;
     p) DBPass=$OPTARG
       ;;
-    g) GenomeList=$OPTARG
+    l) GenomeList=$OPTARG
       ;;
     d) GenomeDir=$OPTARG
       ;;
@@ -66,9 +66,11 @@ python -c "from Bio import SeqIO" >/dev/null 2>&1 || { echo >&2 "Biopython is no
 # Check if the parameters are correctly set
 if [ -z ${DBName+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a database name\n" >&2; exit 1; else echo "Database Name is set to '$DBName'"; fi
 if [ -z ${DBUser+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a database login name\n" >&2; exit 1; else echo "Database Login Name is set to '$DBUser'"; fi
-if [ -z ${DBPass+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a database password\n" >&2; exit 1; else echo "Database Login Name is set to '$DBPass'"; fi
+if [ -z ${DBPass+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a database password\n" >&2; exit 1; else echo "Database User Password is set to '$DBPass'"; fi
 if [ -z ${GenomeList+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a genome list\n" >&2; exit 1; else echo "Genome List is set to '$GenomeList'"; fi
-if [ -z ${GenomeDir+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a input directory\n" >&2; exit 1; else echo "Genome Directory is set to '$GenomeList'"; fi
+if [ -z ${GenomeDir+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a input directory\n" >&2; exit 1; else echo "Genome Directory is set to '$GenomeDir'"; fi
+if [ -z ${Threads+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a number of threads\n" >&2; exit 1; else echo "N. Threads is set to '$Threads'"; fi
+if [ -z ${Prefix+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a prefix\n" >&2; exit 1; else echo "Prefix is set to '$GenomeDir'"; fi
 if [ -z ${OutDir+x} ]; then echo "$Usage" >&2; printf "\nPlease provide an output directory\n" >&2; exit 1; else echo "Output Directory is set to '$OutDir'"; fi
 
 # Create orthomcl.config
@@ -91,7 +93,7 @@ echo "$OutDir/orthomcl.config created"
 
 # Install the database. Usage = orthomclInstallSchema config_file sql_log_file table_suffix
 mysql -u $DBUser -p$DBPass -e "create database if not exists $DBName";
-orthmclInstallSchema $OutDir/orthomcl.config $OutDir/InstallSchema.log
+orthomclInstallSchema $OutDir/orthomcl.config $OutDir/InstallSchema.log
 echo "Database $DBName and schema created"
 
 # Conversion: gb to faa. Usage = python gbtofaa.py -i input -o output.
