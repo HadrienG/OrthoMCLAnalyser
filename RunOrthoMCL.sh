@@ -40,7 +40,7 @@ do
     if [[ ! -d $OutDir ]]
       then
         echo "Creating Output Directory"
-        mkdir -p $Outdir
+        mkdir -p $OutDir
     fi
       ;;
     \?) printf "illegal option -%s\n" "$OPTARG" >&2
@@ -69,7 +69,7 @@ if [ -z ${DBUser+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a databa
 if [ -z ${DBPass+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a database password\n" >&2; exit 1; else echo "Database Login Name is set to '$DBPass'"; fi
 if [ -z ${GenomeList+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a genome list\n" >&2; exit 1; else echo "Genome List is set to '$GenomeList'"; fi
 if [ -z ${GenomeDir+x} ]; then echo "$Usage" >&2; printf "\nPlease provide a input directory\n" >&2; exit 1; else echo "Genome Directory is set to '$GenomeList'"; fi
-if [ -z ${Outdir+x} ]; then echo "$Usage" >&2; printf "\nPlease provide an output directory\n" >&2; exit 1; else echo "Output Directory is set to '$Outdir'"; fi
+if [ -z ${OutDir+x} ]; then echo "$Usage" >&2; printf "\nPlease provide an output directory\n" >&2; exit 1; else echo "Output Directory is set to '$OutDir'"; fi
 
 # Create orthomcl.config
 cat >$OutDir/orthomcl.config << EOL
@@ -108,7 +108,7 @@ echo "Compliant fasta files created"
 
 # Filter. Usage = orthomclFilterFasta input_dir min_length max_percent_stops [good_proteins_file poor_proteins_file]
 # Generates goodProteins.fasta and badProteins.fasta in the $OutDir
-cd $Outdir
+cd $OutDir
 orthomclFilterFasta CompliantFasta 10 20
 
 # All vs All Blastp
