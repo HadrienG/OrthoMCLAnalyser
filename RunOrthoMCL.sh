@@ -101,9 +101,9 @@ echo "Database $DBName and schema created"
 mkdir -p $OutDir/CompliantFasta
 while IFS=$' ' read genome code field
   do
-    python Python/gbtofaa.py -i $GenomeDir$genome -o $OutDir/${genome%.*}
+    python Python/gbtofaa.py -i $WorkDir/$GenomeDir$genome -o $WorkDir/$OutDir/${genome%.*}
     cd $OutDir/CompliantFasta
-    orthomclAdjustFasta $code $OutDir/${genome%.*}.faa $field
+    orthomclAdjustFasta $code ../${genome%.*}.faa $field
     cd $WorkDir
   done <${GenomeList}
 echo "Compliant fasta files created"
@@ -127,3 +127,4 @@ orthomclDumpPairsFiles orthomcl.config
 # Clustering
 mcl mclInput --abc -I 1.5 -o mclOutput
 orthomclMclToGroups $Prefix 1000 < mclOutput > groups.txt
+echo "Finished."
