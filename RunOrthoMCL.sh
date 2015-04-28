@@ -3,7 +3,8 @@
 # requirements: mcl, orthomcl, blast mysql
 # this program configures an runs the orthomcl program.
 
-Usage="$(basename "$0") [-h] [-n database Name] [-u database login name] [-p database password] [-g Genome list] [-d .gb Directory] [-o Output directory] -- RunOrthoMCL
+Usage="$(basename "$0") [-h] [-n database Name] [-u database login name] [-p database password] [-g Genome list]
+[-d .gb Directory] [-t Threads] [-g Group prefix] [-o Output directory] -- RunOrthoMCL
 
     -h show this useful help
     -n <str> Name of the MySQL database
@@ -11,9 +12,11 @@ Usage="$(basename "$0") [-h] [-n database Name] [-u database login name] [-p dat
     -p <str> Your database password
     -g <txt> GenomeList.txt. See the example file for syntax
     -d <dir> Directory containing your genbank files
+    -t <int> Number of threads for blastp
+    -g <str> Prefix for the group IDs
     -o <dir> Output directory"
 
-while getopts ":hn:u:p:g:d:o:" option
+while getopts ":hn:u:p:g:d:t:g:o:" option
 do
   case $option in
     h) echo "$Usage"
@@ -28,6 +31,10 @@ do
     g) GenomeList=$OPTARG
       ;;
     d) GenomeDir=$OPTARG
+      ;;
+    t) Threads=$OPTARG
+      ;;
+    g) Prefix=$OPTARG
       ;;
     o) OutDir=$OPTARG
     if [[ ! -d $OutDir ]]
@@ -89,12 +96,32 @@ echo "Database $DBName and schema created"
 
 # Conversion: gb to faa. Usage = python gbtofaa.py -i input -o output.
 # orthomclAdjustFasta. Usage = orthomclAdjustFasta taxon_code fasta_file id_field
-mkdir -p $OutDir/compliantFasta
+mkdir -p $OutDir/CompliantFasta
 while IFS=$' ' read genome code field
   do
     python Python/gbtofaa.py -i $GenomeDir$genome -o $OutDir/${genome%.*}
-    cd $OutDir/compliantFasta
+    cd $OutDir/CompliantFasta
     orthomclAdjustFasta $code $OutDir/${genome%.*}.faa $field
     cd $WorkDir
   done <${GenomeList}
 echo "Compliant fasta files created"
+
+# Filter. Usage = orthomclFilterFasta input_dir min_length max_percent_stops [good_proteins_file poor_proteins_file]
+# Generates goodProteins.fasta and badProteins.fasta in the $OutDir
+cd $Outdir
+orthomclFilterFasta CompliantFasta 10 20
+
+# All vs All Blastp
+# Create the blastdb and run the blastp
+makeblastdb -in goodProteins.fasta -dbtype prot -out OrthoDB
+blastp -db OrthoDB -query goodProteins.fasta -outfmt 6 -num_threads $Threads -evalue 1e-5 -out BlastResults.txt
+orthomclBlastParser BlastResults.txt CompliantFasta/ >> SimilarSequences.txt
+
+# Database loading
+orthomclLoadBlast orthomcl.config SimilarSequences.txt
+orthomclPairs orthomcl.config Pairs.log cleanup=no
+orthomclDumpPairsFiles orthomcl.config
+
+# Clustering
+mcl mclInput --abc -I 1.5 -o mclOutput
+orthomclMclToGroups $Prefix 1000 < mclOutput > groups.txt
