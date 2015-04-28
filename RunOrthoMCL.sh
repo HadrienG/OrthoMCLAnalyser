@@ -10,13 +10,13 @@ Usage="$(basename "$0") [-h] [-n database Name] [-u database login name] [-p dat
     -n <str> Name of the MySQL database
     -u <str> Your database login name
     -p <str> Your database password
-    -g <txt> GenomeList.txt. See the example file for syntax
+    -l <txt> GenomeList.txt. See the example file for syntax
     -d <dir> Directory containing your genbank files
     -t <int> Number of threads for blastp
     -g <str> Prefix for the group IDs
     -o <dir> Output directory"
 
-while getopts ":hn:u:p:g:d:t:g:o:" option
+while getopts ":hn:u:p:l:d:t:g:o:" option
 do
   case $option in
     h) echo "$Usage"
