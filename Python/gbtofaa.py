@@ -36,10 +36,16 @@ def GenbankToFaa(args):
             if SeqFeature.type == "CDS":
                 assert len(SeqFeature.qualifiers['translation']) == 1
                 if "locus_tag" in SeqFeature.qualifiers:
-                    Output.write(">%s|%s\n%s\n" % (
+                    Product = ""
+                    if SeqFeature.qualifiers.has_key('product'):
+                        Product = SeqFeature.qualifiers['product'][0]
+                    else:
+                        Product = SeqFeature.qualifiers['locus_tag'][0]
+                    Output.write(">%s|%s %s\n%s\n" % (
+                                                        Seq.name,
                                                         SeqFeature.qualifiers
                                                         ['locus_tag'][0],
-                                                        Seq.name,
+                                                        Product,
                                                         SeqFeature.qualifiers
                                                         ['translation'][0]))
 

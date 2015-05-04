@@ -1,4 +1,4 @@
-Genome1.gb  GEN1  1
-Genome2.gb  GEN2  1
-Genome3.gb  GEN3  1
-Genome4.gb  GEN4  1
+Genome1.gb,genbank,GEN1,2
+Genome2.gb,genbank,GEN2,2
+Genome3.gb,genbank,GEN3,2
+Genome4.faa,fasta,GEN4,2
