@@ -51,6 +51,9 @@ do
 done
 shift $((OPTIND-1))
 WorkDir=$(pwd)
+pushd "$(dirname "$0")" >/dev/null
+ScriptPath=$(pwd)
+popd > /dev/null
 
 # Check for requirements
 command -v mysql >/dev/null 2>&1 || { printf "MySQL is not installed or is not in the PATH. Aborting\n" >&2; exit 1; }
@@ -103,7 +106,7 @@ while IFS=$',' read genome format code field
   do
     if [ "$format" == "genbank" ]
       then
-        python Python/gbtofaa.py -i "$WorkDir/$GenomeDir$genome" -o "$WorkDir/$OutDir/${genome%.*}"
+        python "$ScriptPath"/Python/gbtofaa.py -i "$WorkDir/$GenomeDir/$genome" -o "$WorkDir/$OutDir/${genome%.*}"
         if [ "$?" != 0 ]
           then
             echo "gb2fasta: conversion failed. Aborting." >&2
@@ -118,7 +121,7 @@ while IFS=$',' read genome format code field
         fi
     elif [ "$format" == "fasta" ]
       then
-        cp "$WorkDir/$GenomeDir$genome" "$WorkDir/$OutDir/${genome%.*}.faa"
+        cp "$WorkDir/$GenomeDir/$genome" "$WorkDir/$OutDir/${genome%.*}.faa"
         cd "$OutDir/CompliantFasta"
         orthomclAdjustFasta "$code" "../${genome%.*}.faa" "$field"
         if [ "$?" != 0 ]
@@ -151,6 +154,6 @@ orthomclPairs orthomcl.config Pairs.log cleanup=no
 orthomclDumpPairsFiles orthomcl.config
 
 # Clustering
-mcl mclInput --abc -I 1.5 -o mclOutput
+mcl mclInput --abc -I 1.5 -v clusters -o mclOutput
 orthomclMclToGroups "$Prefix" 1000 < mclOutput > groups.txt
 echo "Finished."
