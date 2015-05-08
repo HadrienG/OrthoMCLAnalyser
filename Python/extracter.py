@@ -8,7 +8,9 @@ import argparse
 import numpy as np
 import itertools
 from Bio import SeqIO
+from Bio import Entrez
 from Bio.SeqUtils import GC
+import sys # testing
 
 
 def parser():
@@ -30,11 +32,10 @@ def parser():
 		required=True
 	)
 	parser.add_argument(
-		"--genome_number",
-		"-n",
-		help="Number of genomes used to build the clusters",
-		type=int,
-		metavar="[int]",
+		"--genome_list",
+		"-l",
+		help="GenomeList.txt",
+		metavar="[file]",
 		required=True
 	)
 	parser.add_argument(
@@ -49,28 +50,51 @@ def parser():
 
 class Genome(object):
 	"""class representing a genome coming from a .gb file"""
-	def __init__(self, genbank):
+	def __init__(self, element):
 		super(Genome, self).__init__()
-		self.filename = genbank
-		self.name = genbank.split("/")[-1].split(".")[0]
+		self.type = ""
+		self.filename = element[0]
+		self.name = element[0].split("/")[-1].split(".")[0]
+		self.code = element[1]
 		self.seq = ""
 		self.size = 0
 		self.coding_size = 0
 		self.CDSList = []
 		self.TranslatedCDS = {}  # TranslatedCDS[locus_tag] = DNAsequence
+		if self.filename.endswith((".gb",".gbk",".gbf")):
+			self.type = "genbank"
+			self.file = SeqIO.parse(open(self.filename), "genbank")
+			print "Parsing %s" % (self.filename)
+			for record in self.file:
+				self.seq += str(record.seq)
+				self.size += (len(record.seq))
+				for feature in record.features:
+					if feature.type == "CDS":
+						# We add 1 to the aa length to take into account the stop codon
+						self.coding_size += (len("".join(feature.qualifiers["translation"])) + 1) * 3
+						self.CDSList.append(feature)
+						self.TranslatedCDS["".join(feature.qualifiers["locus_tag"])] = feature.location.extract(record).seq
+			self.GC = GC(self.seq)
 
-		self.file = SeqIO.parse(open(self.filename), "genbank")
-		print "Parsing %s" % (self.filename)
-		for record in self.file:
-			self.seq += str(record.seq)
-			self.size += (len(record.seq))
-			for feature in record.features:
-				if feature.type == "CDS":
-					# We add 1 to the aa length to take into account the stop codon
-					self.coding_size += (len("".join(feature.qualifiers["translation"])) + 1) * 3
-					self.CDSList.append(feature)
-					self.TranslatedCDS["".join(feature.qualifiers["locus_tag"])] = feature.location.extract(record).seq
-		self.GC = GC(self.seq)
+		elif self.filename.endswith((".fasta",".faa")):
+			self.type = "fasta"
+			self.file = SeqIO.parse(open(self.filename), "fasta")
+			print "Parsing %s" % (self.filename)
+			accession = None
+			for record in self.file:
+				header, description, sequence = record.id, record.description, str(record.seq)
+				if accession is None:
+					accession = header.split("|")[1].split(".")[0]
+				self.coding_size += (len("".join(sequence)) + 1) * 3
+
+			for record in SeqIO.parse(Entrez.efetch("nucleotide", id=accession, rettype="gbwithparts"),"genbank"):
+				self.seq += str(record.seq)
+				self.size += (len(record.seq))
+				for feature in record.features:
+					if feature.type == "CDS":
+						self.CDSList.append(feature)
+						self.TranslatedCDS["".join(feature.qualifiers["locus_tag"])] = feature.location.extract(record).seq
+			self.GC = GC(self.seq)
 
 
 class Protein(object):
@@ -80,26 +104,39 @@ class Protein(object):
 		super(Protein, self).__init__()
 		self._info = header
 		self.strain = header.split("|")[0]
-		self._genbank = self._load_genbank(args, header, Genomes)
+		self._genbank = self._load_file(args, header, Genomes)
 		self.feature = self._genbank[2]
 		self.product = "".join(self._genbank[0])
 		self.sequence = "".join(self._genbank[1])
 		self.length = len(self.sequence)
 
-	def _load_genbank(self, args, header, Genomes):
-		Genome = (x for x in Genomes if x.name == header.split("|")[0])
+	def _load_file(self, args, header, Genomes):
+		Genome = (x for x in Genomes if x.code == header.split("|")[0])
 		for genome in Genome:
-			for feature in genome.CDSList:
-				if feature.qualifiers["locus_tag"][0] == header.split("|")[1]:
-					if "product" in feature.qualifiers:
-						product = feature.qualifiers["product"]
-						sequence = feature.qualifiers["translation"]
-						feat = feature
-					else:
-						product = ["unknown"]
-						sequence = feature.qualifiers["translation"]
-						feat = feature
-					break
+			if genome.type == "fasta":
+				for feature in genome.CDSList:
+					if feature.qualifiers["protein_id"][0].split(".")[0] == header.split("|")[1].split(".")[1][7:]:
+						if "product" in feature.qualifiers:
+							product = feature.qualifiers["product"]
+							sequence = feature.qualifiers["translation"]
+							feat = feature
+						else:
+							product = ["unknown"]
+							sequence = feature.qualifiers["translation"]
+							feat = feature
+						break
+			elif genome.type == "genbank":
+				for feature in genome.CDSList:
+					if feature.qualifiers["locus_tag"][0] == header.split("|")[1]:
+						if "product" in feature.qualifiers:
+							product = feature.qualifiers["product"]
+							sequence = feature.qualifiers["translation"]
+							feat = feature
+						else:
+							product = ["unknown"]
+							sequence = feature.qualifiers["translation"]
+							feat = feature
+						break
 		return product, sequence, feat
 
 
@@ -119,7 +156,7 @@ class Cluster(object):
 		for protein in self.proteins:
 			self.strainlist.add(protein.strain)
 
-		if len(self.strainlist) < args.genome_number:
+		if len(self.strainlist) < len(Genomes):
 			self.type = "PAN"
 		else:
 			self.type = "CORE"
@@ -155,7 +192,7 @@ def identify_singletons(Clusters, genome):
 	# aims to identify them. They should be included in each strain pan-genome.
 	CompleteSet = set(genome.CDSList)
 	PartialProteinList = [x for x in list(
-		itertools.chain(*[x.proteins for x in Clusters])) if x.strain == genome.name]
+		itertools.chain(*[x.proteins for x in Clusters])) if x.strain == genome.code]
 	PartialFeatureSet = set(protein.feature for protein in PartialProteinList)
 
 	Singletons = CompleteSet - PartialFeatureSet
@@ -228,7 +265,7 @@ def overall_summary(args, Clusters):
 def get_core_genome(args, Clusters, genome):
 	CoreFeatures = [x.feature for x in list(
 		itertools.chain(*[x.proteins for x in Clusters if x.type == "CORE"]))
-		if x.strain == genome.name]  # List of features
+		if x.strain == genome.code]  # List of features
 
 	CoreProteins = [feature.qualifiers["translation"] for feature in CoreFeatures]
 	CoreDNA = {"".join(feature.qualifiers["locus_tag"]): genome.TranslatedCDS["".join(feature.qualifiers["locus_tag"])]
@@ -242,7 +279,7 @@ def get_core_genome(args, Clusters, genome):
 	OutMergedDNA = open(args.outdir + "/Genomes/" + genome.name + ".CoreMerged.fna", "w")
 
 	for feature in CoreFeatures:
-		OutCoreProt.write(">%s\n%s\n" % ("".join(feature.qualifiers["locus_tag"]), feature.qualifiers["translation"]))
+		OutCoreProt.write(">%s\n%s\n" % ("".join(feature.qualifiers["locus_tag"]), feature.qualifiers["translation"][0]))
 	OutCoreProt.close()
 	for key, value in CoreDNA.iteritems():
 		OutCoreDNA.write(">%s\n%s\n" % (key, value))
@@ -258,7 +295,7 @@ def get_core_genome(args, Clusters, genome):
 def get_pan_genome(args, Clusters, genome):
 	PanFeatures = [x.feature for x in list(
 		itertools.chain(*[x.proteins for x in Clusters if x.type == "PAN"]))
-		if x.strain == genome.name] + [feature for feature in identify_singletons(Clusters, genome)]
+		if x.strain == genome.code] + [feature for feature in identify_singletons(Clusters, genome)]
 		# List of features
 
 	PanProteins = [feature.qualifiers["translation"] for feature in PanFeatures]
@@ -273,7 +310,7 @@ def get_pan_genome(args, Clusters, genome):
 	OutMergedDNA = open(args.outdir + "/Genomes/" + genome.name + ".PanMerged.fna", "w")
 
 	for feature in PanFeatures:
-		OutPanProt.write(">%s\n%s\n" % ("".join(feature.qualifiers["locus_tag"]), feature.qualifiers["translation"]))
+		OutPanProt.write(">%s\n%s\n" % ("".join(feature.qualifiers["locus_tag"]), feature.qualifiers["translation"][0]))
 	OutPanProt.close()
 	for key, value in PanDNA.iteritems():
 		OutPanDNA.write(">%s\n%s\n" % (key, value))
@@ -290,10 +327,10 @@ def per_genome_summary(args, Clusters, Genomes):
 	Output = open(args.outdir + "Summary.txt", "w")
 	for genome in Genomes:
 		form += "%s\t%i\t%i\t%s\n" % (
-			genome.name,
+			genome.code,
 			len([x for x in list(itertools.chain(*[x.proteins for x in Clusters]))
-										if x.strain == genome.name]),
-			len([x.id for x in Clusters if genome.name in x.strainlist]),
+										if x.strain == genome.code]),
+			len([x.id for x in Clusters if genome.code in x.strainlist]),
 			len(identify_singletons(Clusters, genome))
 		)
 
@@ -301,8 +338,8 @@ def per_genome_summary(args, Clusters, Genomes):
 		PanGenomeDic = get_pan_genome(args, Clusters, genome)
 		# {"PanDNA":PanDNA, "MergedPanDNA":MergedPanDNA, "PanGC":PanGC, "PanProteins":PanProteins}
 
-		form2 += "%s:\t%.2f\t%i\t%i\t%.2f\t%i\t%i\t%.2f\t%.2f\t%.2f\t%.2f\n" % (
-								genome.name,
+		form2 += "%s\t%.2f\t%i\t%i\t%.2f\t%i\t%i\t%.2f\t%.2f\t%.2f\t%.2f\n" % (
+								genome.code,
 								genome.GC,
 								genome.size,
 								genome.coding_size,
@@ -337,9 +374,15 @@ def makedir(args):
 def main():
 	args = parser()
 	makedir(args)
+	Entrez.email ="mail@example.com"
 
+	GenomeList=[]
+	with open(args.genome_list,"r") as file:
+		for line in file:
+			GenomeList.append((args.gb_dir+line.split(",")[0], line.split(",")[2]))
 	# List of objects Genome
-	Genomes = [Genome(args.gb_dir + gb) for gb in os.listdir(args.gb_dir)]
+	Genomes = [Genome(element) for element in GenomeList]
+	# print Genomes
 
 	# List of objects Cluster
 	Clusters = extract_clusters(args, Genomes)
