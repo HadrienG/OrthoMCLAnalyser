@@ -16,7 +16,7 @@ for xml in CoreList:
             if record.alignments:
                 # print "QUERY: %s..." % record.query[:60]
                 for align in record.alignments :
-                    Output.write(align.hit_def.split(",")[0])
+                    Output.write(align.hit_def.split(",")[0]+"\n")
                     break
                     # for hsp in align.hsps :
                     #     print " %s HSP, e=%f, from position %i to %i" \
@@ -30,6 +30,6 @@ for xml in PanList:
         for record in NCBIXML.parse(file):
             if record.alignments:
                 for align in record.alignments :
-                    Output.write(align.hit_def.split(",")[0])
+                    Output.write(align.hit_def.split(",")[0]+"\n")
                     break
 Output.close()

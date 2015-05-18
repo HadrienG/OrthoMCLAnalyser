@@ -5,20 +5,38 @@ library("argparser")
 
 
 #Args Parser
-# Input should be InfosSummary.txt
+# Input should be OutDir
 parser <- arg.parser("MeanCoreVsPan.R")
-parser <- add.argument(parser,c("--input", "--output"),
-help=c("input directory", "output file"),
-short=c("-i", "-o"))
+parser <- add.argument(parser,c("--input", "--output", "--ucore", "--upan"),
+help = c("input directory", "output file", "Core not in COG", "Pan not in Cog"),
+short = c("-i", "-o", "-c", "-p"))
 args <- parse.args(parser)
-input=args$input
-output=args$output
+input = args$input
+output = args$output
+UCore = strtoi(args$ucore)
+UPan = strtoi(args$upan)
+
 
 
 PanCog = read.table(paste(input,"/PanCog.tmp.txt", sep=""), sep="\t")
 CoreCog = read.table(paste(input,"/CoreCog.tmp.txt", sep=""), sep="\t")
 
 
+# Create data frames of unknown cogs
+V1 <- rep("Unknown", UCore)
+V2 <- rep(NA, UCore)
+V3 <- rep("Not in COG Database", UCore)
+CoreRows = data.frame(V1, V2, V3)
+
+V1 <- rep("Unknown", UPan)
+V2 <- rep(NA, UPan)
+V3 <- rep("Not in COG Database", UPan)
+PanRows = data.frame(V1, V2, V3)
+
+fullCore = rbind(CoreCog, CoreRows)
+fullPan = rbind(PanCog, PanRows)
+
+# PanCog --> fullPan
 PanFreq = as.data.frame(table(PanCog$V2))
 PanFreq$Freq = prop.table(PanFreq$Freq)
 CoreFreq = as.data.frame(table(CoreCog$V2))
@@ -57,15 +75,24 @@ ggplot(data = total, aes(x = quali, y = Freq, fill = Cog.Categories)) +
   theme(legend.position="bottom", legend.direction="vertical")
 invisible(dev.off())
 
-COLORLIST = c("#EFCCE9", "#C8EC87", "#82DDC9", "#EBB38D", "#E2CA68", "#BFCAB6",
-"#F3A9A8", "#B3C7EF", "#95C2CB", "#97E4AE", "#D2F0AC", "#E3AD68", "#B9BE72",
-"#D4E2EB", "#E1D6AB", "#CFB5A1", "#E9ABCA", "#F59A8A", "#E7D48F", "#9EC99D",
-"#9CE5EA", "#A6DB8C", "#C4B9CE", "#DEB2B4", "#D9EED3", "#E0EA84")
+COLORLIST = c("#89C5DA", "#DA5724", "#74D944", "#CE50CA", "#3F4921", "#C0717C",
+"#CBD588", "#5F7FC7", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1",
+"#689030", "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0",
+"#C84248", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861")
+
+PanFreq = as.data.frame(table(fullPan$V3))
+PanFreq$Freq = prop.table(PanFreq$Freq)
+CoreFreq = as.data.frame(table(fullCore$V3))
+CoreFreq$Freq = prop.table(CoreFreq$Freq)
+PanFreq$Quali = "PanGenome"
+CoreFreq$Quali = "CoreGenome"
+total <- rbind(CoreFreq, PanFreq)
 
 Graph = paste(output,"/Subcategories.pdf", sep="")
 pdf(Graph)
 ggplot(data = total, aes(x = Quali, y = Freq, fill = Var1)) +
   geom_bar(stat="identity") +
   scale_fill_manual(values = COLORLIST) +
-  labs(x="", y="Coding Sequences", fill="")
+  labs(x="", y="Coding Sequences", fill="") +
+  guides(fill = guide_legend(reverse=TRUE))
 invisible(dev.off())
